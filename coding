@@ -1,0 +1,1283 @@
+# ============================================================
+# FEDERATED DEEP LEARNING FOR PRIVACY-PRESERVING HEALTHCARE
+# Educational Offline Prototype
+# ============================================================
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPClassifier
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    classification_report
+)
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+NUM_HOSPITALS = 5
+SAMPLES_PER_HOSPITAL = 400
+FEDERATED_ROUNDS = 10
+
+RANDOM_STATE = 42
+
+np.random.seed(RANDOM_STATE)
+
+
+# ============================================================
+# 1. GENERATE SYNTHETIC HEALTHCARE DATA
+# ============================================================
+
+def generate_healthcare_data(
+    samples,
+    hospital_id
+):
+
+    age = np.random.randint(
+        20,
+        85,
+        samples
+    )
+
+    blood_pressure = np.random.normal(
+        125,
+        20,
+        samples
+    )
+
+    glucose = np.random.normal(
+        110,
+        35,
+        samples
+    )
+
+    cholesterol = np.random.normal(
+        190,
+        40,
+        samples
+    )
+
+    bmi = np.random.normal(
+        26,
+        5,
+        samples
+    )
+
+    heart_rate = np.random.normal(
+        75,
+        12,
+        samples
+    )
+
+    smoking = np.random.binomial(
+        1,
+        0.25,
+        samples
+    )
+
+    physical_activity = np.random.uniform(
+        0,
+        10,
+        samples
+    )
+
+    family_history = np.random.binomial(
+        1,
+        0.30,
+        samples
+    )
+
+    # --------------------------------------------------------
+    # Disease Risk Score
+    # --------------------------------------------------------
+
+    risk_score = (
+
+        0.025 * (age - 40)
+
+        + 0.020 * (blood_pressure - 120)
+
+        + 0.018 * (glucose - 100)
+
+        + 0.012 * (cholesterol - 180)
+
+        + 0.040 * (bmi - 25)
+
+        + 0.015 * (heart_rate - 70)
+
+        + 0.80 * smoking
+
+        - 0.15 * physical_activity
+
+        + 0.70 * family_history
+
+        + np.random.normal(
+            0,
+            1,
+            samples
+        )
+    )
+
+    probability = (
+        1 /
+        (
+            1 +
+            np.exp(-risk_score / 5)
+        )
+    )
+
+    disease = (
+        probability > 0.5
+    ).astype(int)
+
+    data = pd.DataFrame({
+
+        "age": age,
+
+        "blood_pressure": blood_pressure,
+
+        "glucose": glucose,
+
+        "cholesterol": cholesterol,
+
+        "bmi": bmi,
+
+        "heart_rate": heart_rate,
+
+        "smoking": smoking,
+
+        "physical_activity": physical_activity,
+
+        "family_history": family_history,
+
+        "disease": disease
+
+    })
+
+    data["hospital"] = hospital_id
+
+    return data
+
+
+# ============================================================
+# 2. CREATE HOSPITAL DATA
+# ============================================================
+
+def create_hospital_data():
+
+    hospitals = []
+
+    print("\nGenerating synthetic healthcare data...")
+
+    for hospital_id in range(
+        1,
+        NUM_HOSPITALS + 1
+    ):
+
+        data = generate_healthcare_data(
+            SAMPLES_PER_HOSPITAL,
+            hospital_id
+        )
+
+        hospitals.append(
+            data
+        )
+
+    print(
+        f"{NUM_HOSPITALS} hospitals created."
+    )
+
+    return hospitals
+
+
+# ============================================================
+# 3. DISPLAY DATA
+# ============================================================
+
+def display_data(hospitals):
+
+    print("\n")
+    print("=" * 65)
+    print("HEALTHCARE DATA INFORMATION")
+    print("=" * 65)
+
+    for i, data in enumerate(
+        hospitals,
+        start=1
+    ):
+
+        print(
+            f"\nHospital {i}: "
+            f"{len(data)} patients"
+        )
+
+        print(
+            "Disease cases:",
+            data["disease"].sum()
+        )
+
+    combined = pd.concat(
+        hospitals,
+        ignore_index=True
+    )
+
+    print(
+        "\nTotal patients:",
+        len(combined)
+    )
+
+    print(
+        "\nSample data:"
+    )
+
+    print(
+        combined.head()
+    )
+
+
+# ============================================================
+# 4. PREPARE HOSPITAL DATA
+# ============================================================
+
+def prepare_hospital_data(
+    hospital_data
+):
+
+    features = [
+        "age",
+        "blood_pressure",
+        "glucose",
+        "cholesterol",
+        "bmi",
+        "heart_rate",
+        "smoking",
+        "physical_activity",
+        "family_history"
+    ]
+
+    X = hospital_data[
+        features
+    ]
+
+    y = hospital_data[
+        "disease"
+    ]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.20,
+        random_state=RANDOM_STATE,
+        stratify=y
+    )
+
+    scaler = StandardScaler()
+
+    X_train = scaler.fit_transform(
+        X_train
+    )
+
+    X_test = scaler.transform(
+        X_test
+    )
+
+    return (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        scaler
+    )
+
+
+# ============================================================
+# 5. CREATE LOCAL MODEL
+# ============================================================
+
+def create_model():
+
+    model = MLPClassifier(
+
+        hidden_layer_sizes=(
+            32,
+            16
+        ),
+
+        activation="relu",
+
+        solver="adam",
+
+        learning_rate_init=0.001,
+
+        max_iter=100,
+
+        random_state=RANDOM_STATE
+    )
+
+    return model
+
+
+# ============================================================
+# 6. GET MODEL PARAMETERS
+# ============================================================
+
+def get_model_parameters(
+    model
+):
+
+    parameters = []
+
+    for weight in model.coefs_:
+
+        parameters.append(
+            weight.copy()
+        )
+
+    for bias in model.intercepts_:
+
+        parameters.append(
+            bias.copy()
+        )
+
+    return parameters
+
+
+# ============================================================
+# 7. SET MODEL PARAMETERS
+# ============================================================
+
+def set_model_parameters(
+    model,
+    parameters
+):
+
+    number_of_weights = len(
+        model.coefs_
+    )
+
+    for i in range(
+        number_of_weights
+    ):
+
+        model.coefs_[i] = (
+            parameters[i].copy()
+        )
+
+    for i in range(
+        len(model.intercepts_)
+    ):
+
+        model.intercepts_[i] = (
+            parameters[
+                number_of_weights + i
+            ].copy()
+        )
+
+
+# ============================================================
+# 8. INITIALIZE GLOBAL MODEL
+# ============================================================
+
+def initialize_global_model(
+    input_size
+):
+
+    model = create_model()
+
+    # --------------------------------------------------------
+    # Initialize model by fitting a tiny dummy dataset
+    # --------------------------------------------------------
+
+    dummy_X = np.zeros(
+        (2, input_size)
+    )
+
+    dummy_y = np.array(
+        [0, 1]
+    )
+
+    model.fit(
+        dummy_X,
+        dummy_y
+    )
+
+    return model
+
+
+# ============================================================
+# 9. FEDERATED AVERAGING
+# ============================================================
+
+def federated_average(
+    local_parameters,
+    data_sizes
+):
+
+    total_samples = sum(
+        data_sizes
+    )
+
+    global_parameters = []
+
+    for parameter_index in range(
+        len(local_parameters[0])
+    ):
+
+        weighted_sum = np.zeros_like(
+            local_parameters[0][
+                parameter_index
+            ]
+        )
+
+        for client_index in range(
+            len(local_parameters)
+        ):
+
+            weight = (
+                data_sizes[client_index]
+                /
+                total_samples
+            )
+
+            weighted_sum += (
+                weight
+                *
+                local_parameters[
+                    client_index
+                ][parameter_index]
+            )
+
+        global_parameters.append(
+            weighted_sum
+        )
+
+    return global_parameters
+
+
+# ============================================================
+# 10. FEDERATED TRAINING
+# ============================================================
+
+def federated_training(
+    hospitals
+):
+
+    print("\n")
+    print("=" * 65)
+    print("FEDERATED LEARNING TRAINING")
+    print("=" * 65)
+
+    prepared_data = []
+
+    for hospital in hospitals:
+
+        prepared_data.append(
+            prepare_hospital_data(
+                hospital
+            )
+        )
+
+    global_model = initialize_global_model(
+        input_size=9
+    )
+
+    global_parameters = (
+        get_model_parameters(
+            global_model
+        )
+    )
+
+    accuracy_history = []
+
+    for round_number in range(
+        1,
+        FEDERATED_ROUNDS + 1
+    ):
+
+        print(
+            f"\nFederated Round "
+            f"{round_number}/{FEDERATED_ROUNDS}"
+        )
+
+        local_parameters = []
+
+        data_sizes = []
+
+        # ----------------------------------------------------
+        # Each hospital trains locally
+        # ----------------------------------------------------
+
+        for hospital_index in range(
+            NUM_HOSPITALS
+        ):
+
+            (
+                X_train,
+                X_test,
+                y_train,
+                y_test,
+                scaler
+            ) = prepared_data[
+                hospital_index
+            ]
+
+            local_model = create_model()
+
+            local_model.fit(
+                X_train,
+                y_train
+            )
+
+            # ------------------------------------------------
+            # IMPORTANT:
+            # Only model parameters are shared.
+            # Patient data remains local.
+            # ------------------------------------------------
+
+            parameters = (
+                get_model_parameters(
+                    local_model
+                )
+            )
+
+            local_parameters.append(
+                parameters
+            )
+
+            data_sizes.append(
+                len(X_train)
+            )
+
+            print(
+                f"  Hospital "
+                f"{hospital_index + 1}: "
+                f"Local training complete"
+            )
+
+        # ----------------------------------------------------
+        # Server performs FedAvg
+        # ----------------------------------------------------
+
+        global_parameters = federated_average(
+            local_parameters,
+            data_sizes
+        )
+
+        set_model_parameters(
+            global_model,
+            global_parameters
+        )
+
+        # ----------------------------------------------------
+        # Evaluate global model
+        # ----------------------------------------------------
+
+        round_accuracy = evaluate_global_model(
+            global_model,
+            prepared_data
+        )
+
+        accuracy_history.append(
+            round_accuracy
+        )
+
+        print(
+            f"  Global Model Accuracy: "
+            f"{round_accuracy * 100:.2f}%"
+        )
+
+    return (
+        global_model,
+        prepared_data,
+        accuracy_history
+    )
+
+
+# ============================================================
+# 11. GLOBAL MODEL EVALUATION
+# ============================================================
+
+def evaluate_global_model(
+    model,
+    prepared_data
+):
+
+    all_predictions = []
+
+    all_actual = []
+
+    for (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        scaler
+    ) in prepared_data:
+
+        predictions = model.predict(
+            X_test
+        )
+
+        all_predictions.extend(
+            predictions
+        )
+
+        all_actual.extend(
+            y_test
+        )
+
+    accuracy = accuracy_score(
+        all_actual,
+        all_predictions
+    )
+
+    return accuracy
+
+
+# ============================================================
+# 12. FINAL EVALUATION
+# ============================================================
+
+def final_evaluation(
+    model,
+    prepared_data
+):
+
+    all_predictions = []
+
+    all_actual = []
+
+    for (
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        scaler
+    ) in prepared_data:
+
+        predictions = model.predict(
+            X_test
+        )
+
+        all_predictions.extend(
+            predictions
+        )
+
+        all_actual.extend(
+            y_test
+        )
+
+    accuracy = accuracy_score(
+        all_actual,
+        all_predictions
+    )
+
+    precision = precision_score(
+        all_actual,
+        all_predictions
+    )
+
+    recall = recall_score(
+        all_actual,
+        all_predictions
+    )
+
+    f1 = f1_score(
+        all_actual,
+        all_predictions
+    )
+
+    cm = confusion_matrix(
+        all_actual,
+        all_predictions
+    )
+
+    print("\n")
+    print("=" * 65)
+    print("FINAL FEDERATED MODEL EVALUATION")
+    print("=" * 65)
+
+    print(
+        f"\nAccuracy  : {accuracy * 100:.2f}%"
+    )
+
+    print(
+        f"Precision : {precision * 100:.2f}%"
+    )
+
+    print(
+        f"Recall    : {recall * 100:.2f}%"
+    )
+
+    print(
+        f"F1 Score  : {f1 * 100:.2f}%"
+    )
+
+    print(
+        "\nClassification Report:"
+    )
+
+    print(
+        classification_report(
+            all_actual,
+            all_predictions,
+            target_names=[
+                "No Disease",
+                "Disease"
+            ]
+        )
+    )
+
+    print(
+        "Confusion Matrix:"
+    )
+
+    print(cm)
+
+    return (
+        accuracy,
+        precision,
+        recall,
+        f1,
+        cm
+    )
+
+
+# ============================================================
+# 13. CONFUSION MATRIX GRAPH
+# ============================================================
+
+def plot_confusion_matrix(
+    cm
+):
+
+    plt.figure(
+        figsize=(6, 5)
+    )
+
+    plt.imshow(
+        cm,
+        interpolation="nearest"
+    )
+
+    plt.title(
+        "Federated Healthcare Model"
+        "\nConfusion Matrix"
+    )
+
+    plt.colorbar()
+
+    plt.xticks(
+        [0, 1],
+        [
+            "No Disease",
+            "Disease"
+        ]
+    )
+
+    plt.yticks(
+        [0, 1],
+        [
+            "No Disease",
+            "Disease"
+        ]
+    )
+
+    plt.xlabel(
+        "Predicted"
+    )
+
+    plt.ylabel(
+        "Actual"
+    )
+
+    for i in range(2):
+
+        for j in range(2):
+
+            plt.text(
+                j,
+                i,
+                cm[i, j],
+                ha="center",
+                va="center"
+            )
+
+    plt.tight_layout()
+
+    plt.show()
+
+
+# ============================================================
+# 14. FEDERATED TRAINING GRAPH
+# ============================================================
+
+def plot_training_history(
+    history
+):
+
+    rounds = range(
+        1,
+        len(history) + 1
+    )
+
+    plt.figure(
+        figsize=(8, 5)
+    )
+
+    plt.plot(
+        rounds,
+        np.array(history) * 100,
+        marker="o"
+    )
+
+    plt.title(
+        "Federated Learning Accuracy"
+    )
+
+    plt.xlabel(
+        "Federated Round"
+    )
+
+    plt.ylabel(
+        "Accuracy (%)"
+    )
+
+    plt.grid(
+        True
+    )
+
+    plt.tight_layout()
+
+    plt.show()
+
+
+# ============================================================
+# 15. FEATURE IMPORTANCE
+# ============================================================
+
+def show_feature_information():
+
+    features = [
+        "Age",
+        "Blood Pressure",
+        "Glucose",
+        "Cholesterol",
+        "BMI",
+        "Heart Rate",
+        "Smoking",
+        "Physical Activity",
+        "Family History"
+    ]
+
+    print("\n")
+    print("=" * 65)
+    print("HEALTHCARE FEATURES")
+    print("=" * 65)
+
+    for number, feature in enumerate(
+        features,
+        start=1
+    ):
+
+        print(
+            f"{number}. {feature}"
+        )
+
+
+# ============================================================
+# 16. NEW PATIENT PREDICTION
+# ============================================================
+
+def predict_patient(
+    model,
+    scaler
+):
+
+    print("\n")
+    print("=" * 65)
+    print("NEW PATIENT RISK PREDICTION")
+    print("=" * 65)
+
+    print(
+        "\nEnter patient information:"
+    )
+
+    try:
+
+        age = float(
+            input(
+                "Age: "
+            )
+        )
+
+        blood_pressure = float(
+            input(
+                "Blood Pressure: "
+            )
+        )
+
+        glucose = float(
+            input(
+                "Glucose: "
+            )
+        )
+
+        cholesterol = float(
+            input(
+                "Cholesterol: "
+            )
+        )
+
+        bmi = float(
+            input(
+                "BMI: "
+            )
+        )
+
+        heart_rate = float(
+            input(
+                "Heart Rate: "
+            )
+        )
+
+        smoking = int(
+            input(
+                "Smoking? (0=No, 1=Yes): "
+            )
+        )
+
+        physical_activity = float(
+            input(
+                "Physical Activity (0-10): "
+            )
+        )
+
+        family_history = int(
+            input(
+                "Family History? (0=No, 1=Yes): "
+            )
+        )
+
+    except ValueError:
+
+        print(
+            "\nInvalid input."
+        )
+
+        return
+
+    patient = np.array([[
+        age,
+        blood_pressure,
+        glucose,
+        cholesterol,
+        bmi,
+        heart_rate,
+        smoking,
+        physical_activity,
+        family_history
+    ]])
+
+    patient_scaled = scaler.transform(
+        patient
+    )
+
+    prediction = model.predict(
+        patient_scaled
+    )[0]
+
+    probability = model.predict_proba(
+        patient_scaled
+    )[0]
+
+    confidence = probability[
+        prediction
+    ] * 100
+
+    print("\n")
+    print("=" * 65)
+    print("PREDICTION RESULT")
+    print("=" * 65)
+
+    if prediction == 1:
+
+        print(
+            "\nPrediction: HIGHER DISEASE RISK"
+        )
+
+    else:
+
+        print(
+            "\nPrediction: LOWER DISEASE RISK"
+        )
+
+    print(
+        f"Model Confidence: "
+        f"{confidence:.2f}%"
+    )
+
+    print(
+        "\nIMPORTANT:"
+    )
+
+    print(
+        "This is an educational prediction "
+        "using synthetic data."
+    )
+
+    print(
+        "It must NOT be used for real medical "
+        "diagnosis or treatment."
+    )
+
+
+# ============================================================
+# 17. PRIVACY DEMONSTRATION
+# ============================================================
+
+def demonstrate_privacy():
+
+    print("\n")
+    print("=" * 65)
+    print("PRIVACY-PRESERVING FEDERATED LEARNING")
+    print("=" * 65)
+
+    print(
+        "\nTraditional Centralized Learning:"
+    )
+
+    print(
+        "Hospital Data"
+        " → Central Server"
+    )
+
+    print(
+        "Patient data must leave the hospital."
+    )
+
+    print(
+        "\nFederated Learning:"
+    )
+
+    print(
+        "Hospital 1 → Local Training → Model Update"
+    )
+
+    print(
+        "Hospital 2 → Local Training → Model Update"
+    )
+
+    print(
+        "Hospital 3 → Local Training → Model Update"
+    )
+
+    print(
+        "Hospital 4 → Local Training → Model Update"
+    )
+
+    print(
+        "Hospital 5 → Local Training → Model Update"
+    )
+
+    print(
+        "\nOnly model parameters are aggregated "
+        "by the federated server."
+    )
+
+    print(
+        "Raw patient records remain at the "
+        "simulated hospital."
+    )
+
+
+# ============================================================
+# 18. MAIN PROGRAM
+# ============================================================
+
+def main():
+
+    print("\n")
+    print("=" * 65)
+
+    print(
+        "FEDERATED DEEP LEARNING FOR "
+        "PRIVACY-PRESERVING HEALTHCARE"
+    )
+
+    print("=" * 65)
+
+    print(
+        "\nEducational Offline Prototype"
+    )
+
+    # --------------------------------------------------------
+    # Create hospital datasets
+    # --------------------------------------------------------
+
+    hospitals = create_hospital_data()
+
+    display_data(
+        hospitals
+    )
+
+    show_feature_information()
+
+    # --------------------------------------------------------
+    # Privacy explanation
+    # --------------------------------------------------------
+
+    demonstrate_privacy()
+
+    # --------------------------------------------------------
+    # Federated training
+    # --------------------------------------------------------
+
+    (
+        global_model,
+        prepared_data,
+        history
+    ) = federated_training(
+        hospitals
+    )
+
+    # --------------------------------------------------------
+    # Final evaluation
+    # --------------------------------------------------------
+
+    (
+        accuracy,
+        precision,
+        recall,
+        f1,
+        cm
+    ) = final_evaluation(
+        global_model,
+        prepared_data
+    )
+
+    # --------------------------------------------------------
+    # Graphs
+    # --------------------------------------------------------
+
+    plot_training_history(
+        history
+    )
+
+    plot_confusion_matrix(
+        cm
+    )
+
+    # --------------------------------------------------------
+    # Create scaler for new patient prediction
+    # --------------------------------------------------------
+
+    combined_data = pd.concat(
+        hospitals,
+        ignore_index=True
+    )
+
+    features = [
+        "age",
+        "blood_pressure",
+        "glucose",
+        "cholesterol",
+        "bmi",
+        "heart_rate",
+        "smoking",
+        "physical_activity",
+        "family_history"
+    ]
+
+    final_scaler = StandardScaler()
+
+    final_scaler.fit(
+        combined_data[
+            features
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Patient prediction
+    # --------------------------------------------------------
+
+    predict_patient(
+        global_model,
+        final_scaler
+    )
+
+    # --------------------------------------------------------
+    # Completion message
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 65)
+    print("PROJECT COMPLETED SUCCESSFULLY")
+    print("=" * 65)
+
+    print(
+        "\nFederated hospitals:",
+        NUM_HOSPITALS
+    )
+
+    print(
+        "Federated rounds:",
+        FEDERATED_ROUNDS
+    )
+
+    print(
+        f"Final Accuracy: "
+        f"{accuracy * 100:.2f}%"
+    )
+
+    print(
+        "\nThe system demonstrated:"
+    )
+
+    print(
+        "✓ Local hospital training"
+    )
+
+    print(
+        "✓ Model parameter sharing"
+    )
+
+    print(
+        "✓ Federated Averaging"
+    )
+
+    print(
+        "✓ Global model training"
+    )
+
+    print(
+        "✓ Privacy-preserving architecture"
+    )
+
+    print(
+        "✓ Healthcare prediction"
+    )
+
+    print(
+        "\nNote: This project uses synthetic "
+        "healthcare data for educational purposes."
+    )
+
+
+# ============================================================
+# START PROGRAM
+# ============================================================
+
+if __name__ == "__main__":
+
+    main()
